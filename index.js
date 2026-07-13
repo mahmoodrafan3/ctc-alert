@@ -33,10 +33,16 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || null;
 // London: 03:00-05:00 EST = 08:00-10:00 UTC
 // New York: 08:00-10:00 EST = 13:00-15:00 UTC
 const SESSION_ENABLED = process.env.SESSION_ENABLED !== 'false'; // Toggle sessions on/off
-const SESSIONS = [
-  { name: 'London', start: 8, end: 10 },
-  { name: 'New York', start: 13, end: 15 },
-];
+
+// Parse sessions from env: "London=8-10,New York=13-15"
+// Format: comma-separated, each "Name=startHour-endHour" (UTC hours)
+const SESSIONS_RAW = process.env.SESSIONS || 'London=8-10,New York=13-15';
+const SESSIONS = SESSIONS_RAW.split(',').map(s => {
+  const parts = s.trim().split('=');
+  if (parts.length !== 2) return { name: '', start: NaN, end: NaN };
+  const [start, end] = parts[1].split('-').map(Number);
+  return { name: parts[0].trim(), start, end };
+}).filter(s => !isNaN(s.start) && !isNaN(s.end));
 
 let wasInSession = false; // Track session transitions for logging
 
@@ -336,7 +342,7 @@ console.log(gray('   CCI src: ') + white(TM_CCI_SRC.toUpperCase()) + gray(' | Co
 // Sessions info
 if (SESSION_ENABLED) {
   console.log(gray('   ─── Sessions ───'));
-  console.log(gray('   ') + yellow('🕐 London 08-10 UTC') + gray(' | ') + yellow('🗽 New York 13-15 UTC'));
+  console.log(gray('   ') + SESSIONS.map(s => yellow(`🕐 ${s.name} ${s.start}-${s.end} UTC`)).join(gray(' | ')));
   const nowUTC = new Date().getUTCHours();
   const activeSession = getCurrentSession(nowUTC);
   if (activeSession) {
@@ -364,7 +370,7 @@ let latestStatus = {
   symbol: SYMBOL,
   pair: PAIR_NAME,
   timeframe: TIMEFRAME,
-  sessions: 'London 08-10 UTC | New York 13-15 UTC',
+  sessions: SESSIONS.map(s => `${s.name} ${s.start}-${s.end} UTC`).join(' | '),
   currentSession: null,
   inSession: false,
   uptime: null,
