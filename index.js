@@ -41,6 +41,13 @@ const SESSIONS = [
 let wasInSession = false; // Track session transitions for logging
 
 // ============================================================
+// DISPLAY TOGGLES - Control what gets shown/sent
+// ============================================================
+
+const SHOW_CANDLE_DETAILS = process.env.SHOW_CANDLE_DETAILS !== 'false'; // Show candle close in console
+const SEND_TELEGRAM_CANDLE = process.env.SEND_TELEGRAM_CANDLE !== 'false'; // Send candle details to Telegram
+
+// ============================================================
 // ANSI COLOR SYSTEM 🎨
 // ============================================================
 
@@ -317,6 +324,11 @@ console.log(gray(`   Started: `) + white(getTimestamp()));
 console.log(gray(`   Timeframe:  `) + white(`${TIMEFRAME} minute(s) (OHLC from TradingView chart)`));
 if (TELEGRAM_BOT_TOKEN) console.log(gray('   Telegram: ') + brightGreen('✅ Enabled'));
 else console.log(gray('   Telegram: ') + gray('❌ Disabled (set TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID)'));
+
+// Display toggles
+console.log(gray('   ─── Display Toggles ───'));
+console.log(gray('   Console candles: ') + (SHOW_CANDLE_DETAILS ? green('🖥️ ON') : gray('❌ OFF')) + gray('  |  Telegram candles: ') + (SEND_TELEGRAM_CANDLE ? brightGreen('📨 ON') : gray('❌ OFF')));
+console.log(gray('   Signals (BUY/SELL) always show in both console & Telegram regardless'));
 console.log(gray('   ─── Trend Magic ───'));
 console.log(gray('   ATR period: ') + white(String(TM_AP)) + gray(' | CCI period: ') + white(String(TM_CCI_PERIOD)) + gray(' | Coeff: ') + white(String(TM_COEFF)));
 console.log(gray('   CCI src: ') + white(TM_CCI_SRC.toUpperCase()) + gray(' | Coloring: ') + blue('CCI≥0=Blue') + gray(' / ') + red('CCI<0=Red'));
@@ -453,37 +465,41 @@ function onCandleClosed(closedCandle) {
     if (!activeSession) return; // Skip display & alerts outside sessions
   }
 
-  // ---- DISPLAY CANDLE CLOSE ----
-  console.log('');
-  console.log(blue('═').repeat(60));
-  console.log(`   📊 ${bold(PAIR_NAME)} ${gray(`${TIMEFRAME}M CANDLE`)} #${bold(String(candleCount))} ${cyan('CLOSED')}`);
-  console.log(gray(`   ${formatCandleTime(closedCandle.time)}`));
-  console.log(gray(`   ──────────────────────────────────────────────────────────`));
-  console.log(`     ${gray('Open:')}  ${white(formatPrice(closedCandle.open))}`);
-  console.log(`     ${gray('Close:')}  ${bold(tm.isBlue ? blue(formatPrice(closedCandle.close)) : red(formatPrice(closedCandle.close)))}  ${tm.isBlue ? blue('🟦 BULLISH') : red('🟥 BEARISH')}`);
-  console.log(`     ${gray('Move:')}  ${moveSign}${formatPrice(move)}`);
-  console.log(`     ${gray('High:')}  ${white(formatPrice(closedCandle.max))}  ${gray('Low:')} ${white(formatPrice(closedCandle.min))}`);
-  console.log(`     ${gray('Range:')}  ${white(formatPrice(range))}  ${gray('Vol:')} ${white(Math.round(closedCandle.volume))}`);
-
-  // ---- TREND MAGIC DISPLAY (faithful to Pine Script) ----
-  console.log(gray(`   ──────────────────────────────────────────────────────────`));
-  // ── Line 1: Title with colored dot ──
-  const dotColor = tm.isBlue ? blue : red;
-  console.log(`     ${dotColor('✦')} ${bold('TREND MAGIC')} ${dotColor('✦')}`);
-  // ── Line 2: MagicTrend level + CCI + ATR ──
-  const mtLevelColored = tm.isBlue ? blue(mtStr) : red(mtStr);
-  const cciColored = tm.cci !== null
-    ? (tm.cci >= 100 ? brightGreen(tm.cci.toFixed(1)) : tm.cci <= -100 ? brightRed(tm.cci.toFixed(1)) : yellow(tm.cci.toFixed(1)))
-    : gray('--');
-  console.log(`     ${gray('MagicTrend:')}  ${bold(mtLevelColored)}  ${magicTrendColorLabel(tm.isBlue)}  ${gray('CCI:')} ${cciColored}  ${gray('ATR:')} ${white(atrStr)}`);
-  // ── Line 3: upT / downT bands + price position ──
+  // ---- TREND MAGIC DISPLAY DATA (needed by both console + Telegram) ----
   const upTStr = tm.upT !== null ? formatPrice(tm.upT) : '--';
   const downTStr = tm.downT !== null ? formatPrice(tm.downT) : '--';
-  console.log(`     ${gray(' upT:')}  ${blue(upTStr)}  ${gray('dnT:')}  ${red(downTStr)}  ${gray('Dist:')} ${priceAboveMT ? green(distStr) : red(distStr)}`);
-  console.log(blue('═').repeat(60));
-  console.log('');
 
-  // ---- CROSS DETECTION DISPLAY ----
+  // ---- DISPLAY CANDLE CLOSE (toggle via SHOW_CANDLE_DETAILS) ----
+  if (SHOW_CANDLE_DETAILS) {
+    console.log('');
+    console.log(blue('═').repeat(60));
+    console.log(`   📊 ${bold(PAIR_NAME)} ${gray(`${TIMEFRAME}M CANDLE`)} #${bold(String(candleCount))} ${cyan('CLOSED')}`);
+    console.log(gray(`   ${formatCandleTime(closedCandle.time)}`));
+    console.log(gray(`   ──────────────────────────────────────────────────────────`));
+    console.log(`     ${gray('Open:')}  ${white(formatPrice(closedCandle.open))}`);
+    console.log(`     ${gray('Close:')}  ${bold(tm.isBlue ? blue(formatPrice(closedCandle.close)) : red(formatPrice(closedCandle.close)))}  ${tm.isBlue ? blue('🟦 BULLISH') : red('🟥 BEARISH')}`);
+    console.log(`     ${gray('Move:')}  ${moveSign}${formatPrice(move)}`);
+    console.log(`     ${gray('High:')}  ${white(formatPrice(closedCandle.max))}  ${gray('Low:')} ${white(formatPrice(closedCandle.min))}`);
+    console.log(`     ${gray('Range:')}  ${white(formatPrice(range))}  ${gray('Vol:')} ${white(Math.round(closedCandle.volume))}`);
+
+    // ---- TREND MAGIC DISPLAY (faithful to Pine Script) ----
+    console.log(gray(`   ──────────────────────────────────────────────────────────`));
+    // ── Line 1: Title with colored dot ──
+    const dotColor = tm.isBlue ? blue : red;
+    console.log(`     ${dotColor('✦')} ${bold('TREND MAGIC')} ${dotColor('✦')}`);
+    // ── Line 2: MagicTrend level + CCI + ATR ──
+    const mtLevelColored = tm.isBlue ? blue(mtStr) : red(mtStr);
+    const cciColored = tm.cci !== null
+      ? (tm.cci >= 100 ? brightGreen(tm.cci.toFixed(1)) : tm.cci <= -100 ? brightRed(tm.cci.toFixed(1)) : yellow(tm.cci.toFixed(1)))
+      : gray('--');
+    console.log(`     ${gray('MagicTrend:')}  ${bold(mtLevelColored)}  ${magicTrendColorLabel(tm.isBlue)}  ${gray('CCI:')} ${cciColored}  ${gray('ATR:')} ${white(atrStr)}`);
+    // ── Line 3: upT / downT bands + price position ──
+    console.log(`     ${gray(' upT:')}  ${blue(upTStr)}  ${gray('dnT:')}  ${red(downTStr)}  ${gray('Dist:')} ${priceAboveMT ? green(distStr) : red(distStr)}`);
+    console.log(blue('═').repeat(60));
+    console.log('');
+  }
+
+  // ---- CROSS DETECTION DISPLAY (always shown) ----
   if (isBullishCross) {
     console.log(`     ${brightGreen('▰'.repeat(52))}`);
     console.log(`     ${brightGreen('▰')}  ${bold(brightGreen('🚀 BULLISH CROSS CONFIRMED! BUY SIGNAL'))}  ${brightGreen('▰')}`);
@@ -502,19 +518,22 @@ function onCandleClosed(closedCandle) {
 
   // ---- TELEGRAM (plain text, no ANSI codes) ----
   if (TELEGRAM_BOT_TOKEN) {
-    let tgMsg = `<b>🕯️ ${PAIR_NAME} ${TIMEFRAME}M Candle #${candleCount} Closed</b>\n`;
-    tgMsg += `<code>${formatCandleTime(closedCandle.time)}</code>\n`;
-    tgMsg += `Open: ${formatPrice(closedCandle.open)} | Close: ${formatPrice(closedCandle.close)}\n`;
-    tgMsg += `High: ${formatPrice(closedCandle.max)} | Low: ${formatPrice(closedCandle.min)}\n`;
-    tgMsg += `Move: ${moveSign}${formatPrice(move)} | Range: ${formatPrice(range)}\n`;
-    tgMsg += `Direction: ${tm.isBlue ? '🟦 Bullish' : '🟥 Bearish'}\n`;
-    tgMsg += `\n${tm.emoji} <b>TREND MAGIC</b>\n`;
-    tgMsg += `Level: ${mtStr} | CCI: ${cciStr} | ATR: ${atrStr}\n`;
-    tgMsg += `upT: ${upTStr} | dnT: ${downTStr} | Dist: ${distStr}`;
+    // ---- TELEGRAM CANDLE CLOSE (toggle via SEND_TELEGRAM_CANDLE) ----
+    if (SEND_TELEGRAM_CANDLE) {
+      let tgMsg = `<b>🕯️ ${PAIR_NAME} ${TIMEFRAME}M Candle #${candleCount} Closed</b>\n`;
+      tgMsg += `<code>${formatCandleTime(closedCandle.time)}</code>\n`;
+      tgMsg += `Open: ${formatPrice(closedCandle.open)} | Close: ${formatPrice(closedCandle.close)}\n`;
+      tgMsg += `High: ${formatPrice(closedCandle.max)} | Low: ${formatPrice(closedCandle.min)}\n`;
+      tgMsg += `Move: ${moveSign}${formatPrice(move)} | Range: ${formatPrice(range)}\n`;
+      tgMsg += `Direction: ${tm.isBlue ? '🟦 Bullish' : '🟥 Bearish'}\n`;
+      tgMsg += `\n${tm.emoji} <b>TREND MAGIC</b>\n`;
+      tgMsg += `Level: ${mtStr} | CCI: ${cciStr} | ATR: ${atrStr}\n`;
+      tgMsg += `upT: ${upTStr} | dnT: ${downTStr} | Dist: ${distStr}`;
 
-    sendTelegramAlert(tgMsg);
+      sendTelegramAlert(tgMsg);
+    }
 
-    // ---- TELEGRAM BULLISH CROSS ALERT ----
+    // ---- TELEGRAM CROSS SIGNALS (always sent) ----
     if (isBullishCross) {
       let crossMsg = `<b>🚀 ${PAIR_NAME} BULLISH CROSS CONFIRMED!</b>\n`;
       crossMsg += `<code>Buy Signal — ${formatCandleTime(closedCandle.time)}</code>\n`;
