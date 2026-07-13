@@ -1,0 +1,25 @@
+{
+  "name": "eurusd-price-alert",
+  "version": "1.0.0",
+  "description": "Get EUR/USD live price from TradingView and send Telegram alerts",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "tradingview",
+    "forex",
+    "eurusd",
+    "price",
+    "alert"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@mathieuc/tradingview": "github:Mathieu2301/TradingView-API",
+    "dotenv": "^16.4.5"
+  }
+}
