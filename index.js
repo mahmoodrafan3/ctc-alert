@@ -27,6 +27,20 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || null;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || null;
 
 // ============================================================
+// SESSION CONFIG - Only process candles during these times (UTC)
+// ============================================================
+
+// London: 03:00-05:00 EST = 08:00-10:00 UTC
+// New York: 08:00-10:00 EST = 13:00-15:00 UTC
+const SESSION_ENABLED = process.env.SESSION_ENABLED !== 'false'; // Toggle sessions on/off
+const SESSIONS = [
+  { name: 'London', start: 8, end: 10 },
+  { name: 'New York', start: 13, end: 15 },
+];
+
+let wasInSession = false; // Track session transitions for logging
+
+// ============================================================
 // ANSI COLOR SYSTEM 🎨
 // ============================================================
 
@@ -135,6 +149,27 @@ function getTimestamp() {
 function formatCandleTime(time) {
   const d = new Date(time * 1000);
   return d.toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC';
+}
+
+// ============================================================
+// SESSION UTILITIES
+// ============================================================
+
+function getUTCHour(time) {
+  return new Date(time * 1000).getUTCHours();
+}
+
+function getCurrentSession(utcHour) {
+  for (const s of SESSIONS) {
+    // Session is [start, end) — end is exclusive
+    if (utcHour >= s.start && utcHour < s.end) return s;
+  }
+  return null;
+}
+
+function getSessionName(utcHour) {
+  const s = getCurrentSession(utcHour);
+  return s ? s.name : null;
 }
 
 // ============================================================
@@ -285,6 +320,19 @@ else console.log(gray('   Telegram: ') + gray('❌ Disabled (set TELEGRAM_BOT_TO
 console.log(gray('   ─── Trend Magic ───'));
 console.log(gray('   ATR period: ') + white(String(TM_AP)) + gray(' | CCI period: ') + white(String(TM_CCI_PERIOD)) + gray(' | Coeff: ') + white(String(TM_COEFF)));
 console.log(gray('   CCI src: ') + white(TM_CCI_SRC.toUpperCase()) + gray(' | Coloring: ') + blue('CCI≥0=Blue') + gray(' / ') + red('CCI<0=Red'));
+
+// Sessions info
+if (SESSION_ENABLED) {
+  console.log(gray('   ─── Sessions ───'));
+  console.log(gray('   ') + yellow('🕐 London 08-10 UTC') + gray(' | ') + yellow('🗽 New York 13-15 UTC'));
+  const nowUTC = new Date().getUTCHours();
+  const activeSession = getCurrentSession(nowUTC);
+  if (activeSession) {
+    console.log(`     ${green('●')} ${white(activeSession.name)} ${green('session is ACTIVE now')}`);
+  } else {
+    console.log(`     ${gray('●')} ${gray('Outside trading hours — bot is idle')}`);
+  }
+}
 console.log('');
 
 // ------------------------------------------------------------------
@@ -304,6 +352,9 @@ let latestStatus = {
   symbol: SYMBOL,
   pair: PAIR_NAME,
   timeframe: TIMEFRAME,
+  sessions: 'London 08-10 UTC | New York 13-15 UTC',
+  currentSession: null,
+  inSession: false,
   uptime: null,
   lastCandle: null,
   lastSignal: null,
@@ -366,6 +417,42 @@ function onCandleClosed(closedCandle) {
     : '--';
   const priceAboveMT = distToMT !== null && distToMT >= 0;
 
+  // Cross detection (used regardless of session)
+  const isBullishCross = tm.magicTrend !== null &&
+    closedCandle.open < tm.magicTrend &&
+    closedCandle.close > tm.magicTrend;
+
+  const isBearishCross = tm.magicTrend !== null &&
+    closedCandle.open > tm.magicTrend &&
+    closedCandle.close < tm.magicTrend;
+
+  // Track latest signal for web status (always update)
+  if (isBullishCross) {
+    latestStatus.lastSignal = {
+      type: 'BUY 🚀',
+      time: formatCandleTime(closedCandle.time),
+      open: formatPrice(closedCandle.open),
+      close: formatPrice(closedCandle.close),
+      mt: mtStr,
+    };
+  }
+  if (isBearishCross) {
+    latestStatus.lastSignal = {
+      type: 'SELL 🔻',
+      time: formatCandleTime(closedCandle.time),
+      open: formatPrice(closedCandle.open),
+      close: formatPrice(closedCandle.close),
+      mt: mtStr,
+    };
+  }
+
+  // ---- SESSION CHECK: Skip display/alerts outside trading hours ----
+  if (SESSION_ENABLED) {
+    const utcHour = getUTCHour(closedCandle.time);
+    const activeSession = getCurrentSession(utcHour);
+    if (!activeSession) return; // Skip display & alerts outside sessions
+  }
+
   // ---- DISPLAY CANDLE CLOSE ----
   console.log('');
   console.log(blue('═').repeat(60));
@@ -396,24 +483,8 @@ function onCandleClosed(closedCandle) {
   console.log(blue('═').repeat(60));
   console.log('');
 
-  // ---- CROSS DETECTION (Buy / Sell Signals) ----
-  const isBullishCross = tm.magicTrend !== null &&
-    closedCandle.open < tm.magicTrend &&
-    closedCandle.close > tm.magicTrend;
-
-  const isBearishCross = tm.magicTrend !== null &&
-    closedCandle.open > tm.magicTrend &&
-    closedCandle.close < tm.magicTrend;
-
-  // Track latest signal for web status
+  // ---- CROSS DETECTION DISPLAY ----
   if (isBullishCross) {
-    latestStatus.lastSignal = {
-      type: 'BUY 🚀',
-      time: formatCandleTime(closedCandle.time),
-      open: formatPrice(closedCandle.open),
-      close: formatPrice(closedCandle.close),
-      mt: mtStr,
-    };
     console.log(`     ${brightGreen('▰'.repeat(52))}`);
     console.log(`     ${brightGreen('▰')}  ${bold(brightGreen('🚀 BULLISH CROSS CONFIRMED! BUY SIGNAL'))}  ${brightGreen('▰')}`);
     console.log(`     ${brightGreen('▰')}  ${gray('Open:')} ${white(formatPrice(closedCandle.open))} ${gray('< MT:')} ${bold(mtStr)} ${gray('< Close:')} ${white(formatPrice(closedCandle.close))}  ${brightGreen('▰')}`);
@@ -422,13 +493,6 @@ function onCandleClosed(closedCandle) {
   }
 
   if (isBearishCross) {
-    latestStatus.lastSignal = {
-      type: 'SELL 🔻',
-      time: formatCandleTime(closedCandle.time),
-      open: formatPrice(closedCandle.open),
-      close: formatPrice(closedCandle.close),
-      mt: mtStr,
-    };
     console.log(`     ${brightRed('▰'.repeat(52))}`);
     console.log(`     ${brightRed('▰')}  ${bold(brightRed('🔻 BEARISH CROSS CONFIRMED! SELL SIGNAL'))}  ${brightRed('▰')}`);
     console.log(`     ${brightRed('▰')}  ${gray('Open:')} ${white(formatPrice(closedCandle.open))} ${gray('> MT:')} ${bold(mtStr)} ${gray('> Close:')} ${white(formatPrice(closedCandle.close))}  ${brightRed('▰')}`);
@@ -507,6 +571,27 @@ chart.onUpdate(() => {
     console.log(`🕯️ ${gray('Monitoring')} ${TIMEFRAME}M ${gray('candles — waiting for close...')}`);
     console.log('');
     return;
+  }
+
+  // ---- SESSION TRANSITION LOGGING ----
+  if (SESSION_ENABLED) {
+    const nowHour = getUTCHour(currentCandle.time);
+    const nowSession = getCurrentSession(nowHour);
+    const isNowInSession = nowSession !== null;
+
+    // Update health status
+    latestStatus.currentSession = isNowInSession ? nowSession.name : null;
+    latestStatus.inSession = isNowInSession;
+
+    if (isNowInSession && !wasInSession) {
+      console.log(`\n   ${brightGreen('🟢')} ${bold(brightGreen(`${nowSession.name} Session STARTED`))} ${gray(`(${nowSession.start}:00-${nowSession.end}:00 UTC)`)}`);
+      console.log('');
+    } else if (!isNowInSession && wasInSession) {
+      const prevSession = getSessionName(getUTCHour(lastCandleTime));
+      console.log(`\n   ${brightRed('🔴')} ${bold(brightRed(`${prevSession || 'Trading'} Session ENDED`))} ${gray(`— bot idle until next session`)}`);
+      console.log('');
+    }
+    wasInSession = isNowInSession;
   }
 
   // Detect candle close: time changed → a new candle started
