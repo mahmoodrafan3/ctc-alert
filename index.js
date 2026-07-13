@@ -298,12 +298,34 @@ const chart = new client.Session.Chart();
 let lastCandleTime = null;
 let candleCount = 0;
 
+// Web server status (for Render health check)
+let latestStatus = {
+  status: 'starting',
+  symbol: SYMBOL,
+  pair: PAIR_NAME,
+  timeframe: TIMEFRAME,
+  uptime: null,
+  lastCandle: null,
+  lastSignal: null,
+  candleCount: 0,
+};
+
 // ============================================================
 // CANDLE CLOSE HANDLER
 // ============================================================
 
 function onCandleClosed(closedCandle) {
   candleCount++;
+
+  // Update web status
+  latestStatus.candleCount = candleCount;
+  latestStatus.lastCandle = {
+    time: formatCandleTime(closedCandle.time),
+    open: formatPrice(closedCandle.open),
+    close: formatPrice(closedCandle.close),
+    high: formatPrice(closedCandle.max),
+    low: formatPrice(closedCandle.min),
+  };
 
   const move = closedCandle.close - closedCandle.open;
   const moveSign = move >= 0 ? '+' : '';
@@ -383,8 +405,15 @@ function onCandleClosed(closedCandle) {
     closedCandle.open > tm.magicTrend &&
     closedCandle.close < tm.magicTrend;
 
-  // Bullish cross display (Buy signal)
+  // Track latest signal for web status
   if (isBullishCross) {
+    latestStatus.lastSignal = {
+      type: 'BUY 🚀',
+      time: formatCandleTime(closedCandle.time),
+      open: formatPrice(closedCandle.open),
+      close: formatPrice(closedCandle.close),
+      mt: mtStr,
+    };
     console.log(`     ${brightGreen('▰'.repeat(52))}`);
     console.log(`     ${brightGreen('▰')}  ${bold(brightGreen('🚀 BULLISH CROSS CONFIRMED! BUY SIGNAL'))}  ${brightGreen('▰')}`);
     console.log(`     ${brightGreen('▰')}  ${gray('Open:')} ${white(formatPrice(closedCandle.open))} ${gray('< MT:')} ${bold(mtStr)} ${gray('< Close:')} ${white(formatPrice(closedCandle.close))}  ${brightGreen('▰')}`);
@@ -392,8 +421,14 @@ function onCandleClosed(closedCandle) {
     console.log(`     ${brightGreen('▰'.repeat(52))}`);
   }
 
-  // Bearish cross display (Sell signal)
   if (isBearishCross) {
+    latestStatus.lastSignal = {
+      type: 'SELL 🔻',
+      time: formatCandleTime(closedCandle.time),
+      open: formatPrice(closedCandle.open),
+      close: formatPrice(closedCandle.close),
+      mt: mtStr,
+    };
     console.log(`     ${brightRed('▰'.repeat(52))}`);
     console.log(`     ${brightRed('▰')}  ${bold(brightRed('🔻 BEARISH CROSS CONFIRMED! SELL SIGNAL'))}  ${brightRed('▰')}`);
     console.log(`     ${brightRed('▰')}  ${gray('Open:')} ${white(formatPrice(closedCandle.open))} ${gray('> MT:')} ${bold(mtStr)} ${gray('> Close:')} ${white(formatPrice(closedCandle.close))}  ${brightRed('▰')}`);
@@ -493,11 +528,41 @@ chart.setMarket(SYMBOL, {
 });
 
 // ============================================================
+// WEB SERVER (for Render.com Web Service health check)
+// Render requires a listening port for Web Services (free tier)
+// ============================================================
+
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(latestStatus, null, 2));
+    return;
+  }
+  res.writeHead(404);
+  res.end('Not found');
+});
+
+server.on('error', (err) => {
+  console.error(`   🌐 Health server error: ${err.message}`);
+});
+
+server.listen(PORT, () => {
+  latestStatus.status = 'running';
+  latestStatus.uptime = getTimestamp();
+  console.log(cyan(`   🌐 Health server active on port ${PORT} (Render Web Service)`));
+  console.log('');
+});
+
+// ============================================================
 // GRACEFUL SHUTDOWN
 // ============================================================
 
 function shutdown() {
   console.log(`\n\n👋 ${cyan(`Shutting down ${PAIR_NAME} monitor...`)}`);
+  server.close();
   client.end();
   process.exit(0);
 }
