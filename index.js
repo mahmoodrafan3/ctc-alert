@@ -30,13 +30,13 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || null;
 // SESSION CONFIG - Only process candles during these times (UTC)
 // ============================================================
 
-// London: 03:00-05:00 EST = 08:00-10:00 UTC
-// New York: 08:00-10:00 EST = 13:00-15:00 UTC
+// London: 12:30-14:00 IST = 07:00-08:30 UTC
+// New York: 17:30-19:30 IST = 12:00-14:00 UTC
 const SESSION_ENABLED = process.env.SESSION_ENABLED !== 'false'; // Toggle sessions on/off
 
-// Parse sessions from env: "London=8-10,New York=13-15"
+// Parse sessions from env: "London=7-9,New York=12-14"
 // Format: comma-separated, each "Name=startHour-endHour" (UTC hours)
-const SESSIONS_RAW = process.env.SESSIONS || 'London=8-10,New York=13-15';
+const SESSIONS_RAW = process.env.SESSIONS || 'London=7-9,New York=12-14';
 const SESSIONS = SESSIONS_RAW.split(',').map(s => {
   const parts = s.trim().split('=');
   if (parts.length !== 2) return { name: '', start: NaN, end: NaN };
@@ -45,6 +45,7 @@ const SESSIONS = SESSIONS_RAW.split(',').map(s => {
 }).filter(s => !isNaN(s.start) && !isNaN(s.end));
 
 let wasInSession = false; // Track session transitions for logging
+let lastProcessedCandleTime = null; // Deduplicate candle close events
 
 // ============================================================
 // DISPLAY TOGGLES - Control what gets shown/sent
@@ -406,6 +407,10 @@ let latestStatus = {
 // ============================================================
 
 function onCandleClosed(closedCandle) {
+  // Deduplicate: TradingView onUpdate can fire multiple times for same close
+  if (closedCandle.time === lastProcessedCandleTime) return;
+  lastProcessedCandleTime = closedCandle.time;
+
   candleCount++;
 
   // Update web status
@@ -487,9 +492,12 @@ function onCandleClosed(closedCandle) {
   }
 
   // ---- SESSION CHECK: Skip display/alerts outside trading hours ----
+  // Use BOTH the candle's start time AND current UTC time to avoid
+  // dropping boundary candles (e.g. 7:55-8:00 candle when session starts at 8:00)
   if (SESSION_ENABLED) {
-    const utcHour = getUTCHour(closedCandle.time);
-    const activeSession = getCurrentSession(utcHour);
+    const candleHour = getUTCHour(closedCandle.time);
+    const nowHour = new Date().getUTCHours();
+    const activeSession = getCurrentSession(candleHour) || getCurrentSession(nowHour);
     if (!activeSession) return; // Skip display & alerts outside sessions
   }
 
