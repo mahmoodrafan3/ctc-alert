@@ -353,7 +353,7 @@ else console.log(gray('   Telegram: ') + gray('❌ Disabled (set TELEGRAM_BOT_TO
 // Display toggles
 console.log(gray('   ─── Display Toggles ───'));
 console.log(gray('   Console candles: ') + (SHOW_CANDLE_DETAILS ? green('🖥️ ON') : gray('❌ OFF')) + gray('  |  Telegram candles: ') + (SEND_TELEGRAM_CANDLE ? brightGreen('📨 ON') : gray('❌ OFF')));
-console.log(gray('   Signals (BUY/SELL) always show in both console & Telegram regardless'));
+console.log(gray('   Candle details: always on (toggle-based) | Signals (BUY/SELL): gated by session'));
 console.log(gray('   ─── Trend Magic ───'));
 console.log(gray('   ATR period: ') + white(String(TM_AP)) + gray(' | CCI period: ') + white(String(TM_CCI_PERIOD)) + gray(' | Coeff: ') + white(String(TM_COEFF)));
 console.log(gray('   CCI src: ') + white(TM_CCI_SRC.toUpperCase()) + gray(' | Coloring: ') + blue('CCI≥0=Blue') + gray(' / ') + red('CCI<0=Red'));
@@ -491,21 +491,23 @@ function onCandleClosed(closedCandle) {
     };
   }
 
-  // ---- SESSION CHECK: Skip display/alerts outside trading hours ----
+  // ---- SESSION CHECK: Gate cross signals only (console + Telegram) ----
+  // Candle close details bypass session (controlled only by SHOW_CANDLE_DETAILS / SEND_TELEGRAM_CANDLE)
   // Use BOTH the candle's start time AND current UTC time to avoid
   // dropping boundary candles (e.g. 7:55-8:00 candle when session starts at 8:00)
+  let inSession = true;
   if (SESSION_ENABLED) {
     const candleHour = getUTCHour(closedCandle.time);
     const nowHour = new Date().getUTCHours();
     const activeSession = getCurrentSession(candleHour) || getCurrentSession(nowHour);
-    if (!activeSession) return; // Skip display & alerts outside sessions
+    inSession = activeSession !== null;
   }
 
   // ---- TREND MAGIC DISPLAY DATA (needed by both console + Telegram) ----
   const upTStr = tm.upT !== null ? formatPrice(tm.upT) : '--';
   const downTStr = tm.downT !== null ? formatPrice(tm.downT) : '--';
 
-  // ---- DISPLAY CANDLE CLOSE (toggle via SHOW_CANDLE_DETAILS) ----
+  // ---- DISPLAY CANDLE CLOSE (toggle via SHOW_CANDLE_DETAILS, NOT gated by session) ----
   if (SHOW_CANDLE_DETAILS) {
     console.log('');
     console.log(blue('═').repeat(60));
@@ -535,8 +537,8 @@ function onCandleClosed(closedCandle) {
     console.log('');
   }
 
-  // ---- CROSS DETECTION DISPLAY (always shown) ----
-  if (isBullishCross) {
+  // ---- CROSS DETECTION DISPLAY (gated by session) ----
+  if (isBullishCross && inSession) {
     console.log(`     ${brightGreen('▰'.repeat(52))}`);
     console.log(`     ${brightGreen('▰')}  ${bold(brightGreen('🚀 BULLISH CROSS CONFIRMED! BUY SIGNAL'))}  ${brightGreen('▰')}`);
     console.log(`     ${brightGreen('▰')}  ${gray('Open:')} ${white(formatPrice(closedCandle.open))} ${gray('< MT:')} ${bold(mtStr)} ${gray('< Close:')} ${white(formatPrice(closedCandle.close))}  ${brightGreen('▰')}`);
@@ -544,7 +546,7 @@ function onCandleClosed(closedCandle) {
     console.log(`     ${brightGreen('▰'.repeat(52))}`);
   }
 
-  if (isBearishCross) {
+  if (isBearishCross && inSession) {
     console.log(`     ${brightRed('▰'.repeat(52))}`);
     console.log(`     ${brightRed('▰')}  ${bold(brightRed('🔻 BEARISH CROSS CONFIRMED! SELL SIGNAL'))}  ${brightRed('▰')}`);
     console.log(`     ${brightRed('▰')}  ${gray('Open:')} ${white(formatPrice(closedCandle.open))} ${gray('> MT:')} ${bold(mtStr)} ${gray('> Close:')} ${white(formatPrice(closedCandle.close))}  ${brightRed('▰')}`);
@@ -554,7 +556,7 @@ function onCandleClosed(closedCandle) {
 
   // ---- TELEGRAM (plain text, no ANSI codes) ----
   if (TELEGRAM_BOT_TOKEN) {
-    // ---- TELEGRAM CANDLE CLOSE (toggle via SEND_TELEGRAM_CANDLE) ----
+    // ---- TELEGRAM CANDLE CLOSE (toggle via SEND_TELEGRAM_CANDLE, NOT gated by session) ----
     if (SEND_TELEGRAM_CANDLE) {
       let tgMsg = `<b>🕯️ ${PAIR_NAME} ${TIMEFRAME}M Candle #${candleCount} Closed</b>\n`;
       tgMsg += `<code>${formatCandleTime(closedCandle.time)}</code>\n`;
@@ -569,8 +571,8 @@ function onCandleClosed(closedCandle) {
       sendTelegramAlert(tgMsg);
     }
 
-    // ---- TELEGRAM CROSS SIGNALS (always sent) ----
-    if (isBullishCross) {
+    // ---- TELEGRAM CROSS SIGNALS (gated by session) ----
+    if (isBullishCross && inSession) {
       let crossMsg = `<b>🚀 ${PAIR_NAME} BULLISH CROSS CONFIRMED!</b>\n`;
       crossMsg += `<code>Buy Signal — ${formatCandleTime(closedCandle.time)}</code>\n`;
       crossMsg += `Candle opened below MagicTrend and closed above!\n`;
@@ -581,8 +583,8 @@ function onCandleClosed(closedCandle) {
       sendTelegramAlert(crossMsg);
     }
 
-    // ---- TELEGRAM BEARISH CROSS ALERT ----
-    if (isBearishCross) {
+    // ---- TELEGRAM BEARISH CROSS ALERT (gated by session) ----
+    if (isBearishCross && inSession) {
       let crossMsg = `<b>🔻 ${PAIR_NAME} BEARISH CROSS CONFIRMED!</b>\n`;
       crossMsg += `<code>Sell Signal — ${formatCandleTime(closedCandle.time)}</code>\n`;
       crossMsg += `Candle opened above MagicTrend and closed below!\n`;
