@@ -155,13 +155,19 @@ function formatPrice(price) {
   return num.toFixed(6);
 }
 
+function formatIST(date) {
+  const d = new Date(date);
+  const dateStr = d.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' });
+  const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: true });
+  return `${dateStr}, ${timeStr} IST`;
+}
+
 function getTimestamp() {
-  return new Date().toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC';
+  return formatIST(new Date());
 }
 
 function formatCandleTime(time) {
-  const d = new Date(time * 1000);
-  return d.toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC';
+  return formatIST(new Date(time * 1000));
 }
 
 // ============================================================
@@ -183,6 +189,18 @@ function getCurrentSession(utcHour) {
 function getSessionName(utcHour) {
   const s = getCurrentSession(utcHour);
   return s ? s.name : null;
+}
+
+function formatISTHour(hour) {
+  // Convert a UTC hour number to IST 12h format with AM/PM
+  const utcDate = new Date();
+  utcDate.setUTCHours(hour, 0, 0, 0);
+  return utcDate.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 // ============================================================
@@ -342,7 +360,11 @@ console.log(gray('   CCI src: ') + white(TM_CCI_SRC.toUpperCase()) + gray(' | Co
 // Sessions info
 if (SESSION_ENABLED) {
   console.log(gray('   ─── Sessions ───'));
-  console.log(gray('   ') + SESSIONS.map(s => yellow(`🕐 ${s.name} ${s.start}-${s.end} UTC`)).join(gray(' | ')));
+  console.log(gray('   ') + SESSIONS.map(s => {
+    const istStart = formatISTHour(s.start);
+    const istEnd = formatISTHour(s.end);
+    return yellow(`🕐 ${s.name} ${s.start}-${s.end} UTC (${istStart}-${istEnd} IST)`);
+  }).join(gray(' | ')));
   const nowUTC = new Date().getUTCHours();
   const activeSession = getCurrentSession(nowUTC);
   if (activeSession) {
@@ -609,7 +631,9 @@ chart.onUpdate(() => {
     latestStatus.inSession = isNowInSession;
 
     if (isNowInSession && !wasInSession) {
-      console.log(`\n   ${brightGreen('🟢')} ${bold(brightGreen(`${nowSession.name} Session STARTED`))} ${gray(`(${nowSession.start}:00-${nowSession.end}:00 UTC)`)}`);
+      const istStart = formatISTHour(nowSession.start);
+      const istEnd = formatISTHour(nowSession.end);
+      console.log(`\n   ${brightGreen('🟢')} ${bold(brightGreen(`${nowSession.name} Session STARTED`))} ${gray(`(${nowSession.start}:00-${nowSession.end}:00 UTC / ${istStart}-${istEnd} IST)`)}`);
       console.log('');
     } else if (!isNowInSession && wasInSession) {
       const prevSession = getSessionName(getUTCHour(lastCandleTime));
