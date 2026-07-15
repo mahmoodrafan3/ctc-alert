@@ -46,7 +46,7 @@ const SESSIONS = SESSIONS_RAW.split(',').map(s => {
 
 // Render keepalive URL (set in .env to enable built-in self-ping)
 const RENDER_URL = process.env.RENDER_URL || null;
-const KEEPALIVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const KEEPALIVE_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 let wasInSession = false; // Track session transitions for logging
 let lastProcessedCandleTime = null; // Deduplicate candle close events
