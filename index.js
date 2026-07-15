@@ -44,6 +44,10 @@ const SESSIONS = SESSIONS_RAW.split(',').map(s => {
   return { name: parts[0].trim(), start, end };
 }).filter(s => !isNaN(s.start) && !isNaN(s.end));
 
+// Render keepalive URL (set in .env to enable built-in self-ping)
+const RENDER_URL = process.env.RENDER_URL || null;
+const KEEPALIVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
 let wasInSession = false; // Track session transitions for logging
 let lastProcessedCandleTime = null; // Deduplicate candle close events
 
@@ -205,6 +209,22 @@ function formatISTHour(hour) {
 }
 
 // ============================================================
+// KEEPALIVE UTILITIES — Keep Render awake during sessions (Mon-Fri)
+// ============================================================
+
+function isWeekday() {
+  const day = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  return day >= 1 && day <= 5;
+}
+
+function shouldKeepAlive() {
+  if (!RENDER_URL || !SESSION_ENABLED) return false;
+  if (!isWeekday()) return false;
+  const nowHour = new Date().getUTCHours();
+  return getCurrentSession(nowHour) !== null;
+}
+
+// ============================================================
 // TREND MAGIC INDICATOR — from Pine Script
 //
 // ATR   = ta.sma(ta.tr, AP)
@@ -349,6 +369,9 @@ console.log(gray(`   Started: `) + white(getTimestamp()));
 console.log(gray(`   Timeframe:  `) + white(`${TIMEFRAME} minute(s) (OHLC from TradingView chart)`));
 if (TELEGRAM_BOT_TOKEN) console.log(gray('   Telegram: ') + brightGreen('✅ Enabled'));
 else console.log(gray('   Telegram: ') + gray('❌ Disabled (set TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID)'));
+if (RENDER_URL && SESSION_ENABLED) console.log(gray('   Keepalive: ') + brightGreen(`🔄 Every 5 min (Mon-Fri, session hours only)`) + gray('   → ') + white(RENDER_URL + '/health'));
+else if (RENDER_URL && !SESSION_ENABLED) console.log(gray('   Keepalive: ') + yellow(`⚠️ RENDER_URL set but SESSION_ENABLED=false — keepalive won't fire`));
+else console.log(gray('   Keepalive: ') + gray('❌ Disabled (set RENDER_URL in .env)'));
 
 // Display toggles
 console.log(gray('   ─── Display Toggles ───'));
@@ -701,11 +724,57 @@ server.listen(PORT, () => {
 });
 
 // ============================================================
+// SELF-PING KEEPALIVE — Prevents Render free tier spin-down
+// Only runs Mon-Fri during London & New York session hours
+// ============================================================
+
+let keepaliveInterval = null;
+let wasKeepaliveActive = false; // Track transitions to reduce log noise
+
+async function selfPing() {
+  const shouldPing = shouldKeepAlive();
+
+  // Log on transition only (not every 5 min)
+  if (!shouldPing && wasKeepaliveActive) {
+    console.log(gray(`   💤 Keepalive paused — outside session/weekend`));
+  }
+  wasKeepaliveActive = shouldPing;
+
+  if (!shouldPing) return;
+
+  try {
+    const url = `${RENDER_URL.replace(/\/+$/, '')}/health`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (response.ok) {
+      const data = await response.json();
+      console.log(gray(`   💓 Keepalive ping OK — ${data.pair} ${data.currentSession || 'idle'} (candles: ${data.candleCount})`));
+    } else {
+      console.error(gray(`   ⚠️ Keepalive ping failed: HTTP ${response.status}`));
+    }
+  } catch (err) {
+    // Silently ignore — Render might be spinning up
+    if (err.name !== 'AbortError') {
+      console.error(gray(`   ⚠️ Keepalive error: ${err.message}`));
+    }
+  }
+}
+
+// Start keepalive pinger (checks every 5 min, only pings during sessions)
+if (RENDER_URL) {
+  keepaliveInterval = setInterval(selfPing, KEEPALIVE_INTERVAL);
+  // Initial ping if we're in a session right now
+  if (shouldKeepAlive()) {
+    setTimeout(selfPing, 2000); // Short delay to let everything start up
+  }
+}
+
+// ============================================================
 // GRACEFUL SHUTDOWN
 // ============================================================
 
 function shutdown() {
   console.log(`\n\n👋 ${cyan(`Shutting down ${PAIR_NAME} monitor...`)}`);
+  if (keepaliveInterval) clearInterval(keepaliveInterval);
   server.close();
   client.end();
   process.exit(0);

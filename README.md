@@ -136,6 +136,7 @@ git push -u origin master
 | `TM_HISTORY_RANGE` | `10000` | Historical candles for warmup |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | — | Telegram chat ID (optional) |
+| `RENDER_URL` | — | Your Render app URL (e.g. `https://ctc-alert.onrender.com`) — enables built-in self-keepalive during sessions Mon-Fri |
 
 ---
 
