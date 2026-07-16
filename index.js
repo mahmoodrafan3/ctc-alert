@@ -680,10 +680,22 @@ chart.setMarket(SYMBOL, {
 const http = require('http');
 const PORT = process.env.PORT || 3000;
 
+// Minimal health check response — cron-job.org has a response size limit
+function getHealthResponse() {
+  return {
+    status: latestStatus.status,
+    uptime: latestStatus.uptime,
+    pair: latestStatus.pair,
+    inSession: latestStatus.inSession,
+    currentSession: latestStatus.currentSession,
+    candleCount: latestStatus.candleCount,
+  };
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(latestStatus, null, 2));
+    res.end(JSON.stringify(getHealthResponse()));
     return;
   }
   res.writeHead(404);
