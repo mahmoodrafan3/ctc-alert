@@ -27,6 +27,15 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || null;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || null;
 
 // ============================================================
+// KEEPALIVE CONFIG
+// ============================================================
+// When set, the app will self-ping every few minutes to prevent Render spin-down.
+// This is the most reliable method because once the process is running, it keeps
+// itself alive without depending on external cron jobs that may timeout on cold start.
+const RENDER_URL = process.env.RENDER_URL || null;
+const KEEPALIVE_INTERVAL_MS = (Number(process.env.KEEPALIVE_INTERVAL) || 10) * 60 * 1000; // default 10 min
+
+// ============================================================
 // SESSION CONFIG - Only process candles during these times (UTC)
 // ============================================================
 
@@ -349,7 +358,7 @@ console.log(gray(`   Started: `) + white(getTimestamp()));
 console.log(gray(`   Timeframe:  `) + white(`${TIMEFRAME} minute(s) (OHLC from TradingView chart)`));
 if (TELEGRAM_BOT_TOKEN) console.log(gray('   Telegram: ') + brightGreen('✅ Enabled'));
 else console.log(gray('   Telegram: ') + gray('❌ Disabled (set TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID)'));
-console.log(gray('   Keepalive: ') + brightGreen('✅ External (cron-job.org)') + gray(' — ping every 5 min during sessions (Mon-Fri)'));
+console.log(gray('   Keepalive: ') + brightGreen('✅ GitHub Actions (pre-wake)') + gray(' | ') + brightGreen('✅ Self-ping (internal, session-gated)') + gray(' — every ' + (KEEPALIVE_INTERVAL_MS / 60000) + ' min'));
 
 // Display toggles
 console.log(gray('   ─── Display Toggles ───'));
@@ -666,15 +675,12 @@ chart.onUpdate(() => {
   lastCandleTime = currentCandle.time;
 });
 
-// Start streaming — use large range for MagicTrend convergence
-chart.setMarket(SYMBOL, {
-  timeframe: TIMEFRAME,
-  range: TM_HISTORY_RANGE, // Need lots of history for MagicTrend to converge
-});
-
 // ============================================================
 // WEB SERVER (for Render.com Web Service health check)
 // Render requires a listening port for Web Services (free tier)
+// Started BEFORE TradingView connection so health endpoint responds ASAP
+// on cold start — cron-job.org only has a 30s timeout but Render cold
+// start can take ~60s, so every millisecond matters.
 // ============================================================
 
 const http = require('http');
@@ -701,12 +707,62 @@ server.on('error', (err) => {
   console.error(`   🌐 Health server error: ${err.message}`);
 });
 
+// Start HTTP listener immediately — before TradingView connection setup
+// This ensures the health endpoint is available within seconds of container start
 server.listen(PORT, () => {
   latestStatus.status = 'running';
   latestStatus.uptime = getTimestamp();
   console.log(cyan(`   🌐 Health server active on port ${PORT} (Render Web Service)`));
   console.log('');
 });
+
+// Start streaming — use large range for MagicTrend convergence
+chart.setMarket(SYMBOL, {
+  timeframe: TIMEFRAME,
+  range: TM_HISTORY_RANGE, // Need lots of history for MagicTrend to converge
+});
+
+// ============================================================
+// INTERNAL KEEPALIVE — self-ping to prevent Render spin-down during sessions
+//
+// Runs only during active session hours (gated by SESSION_ENABLED).
+// GitHub Actions handles waking Render from sleep before each session start
+// (curl --max-time 60 can wait through the ~60s cold start, unlike cron-job.org's 30s limit).
+// Once running, this internal pinger keeps Render alive within the session window.
+// ============================================================
+
+if (RENDER_URL) {
+  function isKeepaliveNeeded() {
+    if (!SESSION_ENABLED) return true;
+    const nowUTC = new Date().getUTCHours();
+    return getCurrentSession(nowUTC) !== null;
+  }
+
+  // Fire the first ping after a short delay (give Render time to stabilize)
+  // then repeat every KEEPALIVE_INTERVAL_MS
+  setTimeout(() => {
+    setInterval(async () => {
+      if (!isKeepaliveNeeded()) return; // Skip outside session hours
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15_000); // 15s timeout
+        const pingRes = await fetch(RENDER_URL, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!pingRes.ok) {
+          console.error(`   ⚠️ Keepalive ping failed: ${pingRes.status}`);
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          return;
+        }
+        console.error(`   ⚠️ Keepalive ping error: ${err.message}`);
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }, 30_000); // initial delay: 30 seconds
+
+  console.log(cyan(`   🔄 Internal keepalive active — session-gated, pings every ${KEEPALIVE_INTERVAL_MS / 60000} min`));
+  console.log(gray(`      Wake-up: GitHub Actions (pre-session ping with 60s timeout)`));
+}
 
 // ============================================================
 // GRACEFUL SHUTDOWN

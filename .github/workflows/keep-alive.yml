@@ -1,0 +1,64 @@
+# ============================================================
+# WAKE RENDER BEFORE SESSIONS
+# ============================================================
+# This workflow pings your Render service shortly before each
+# trading session starts. Unlike cron-job.org (30s timeout),
+# curl with --max-time 60 can wait through Render's ~60s cold
+# start, ensuring the service is awake when the session begins.
+#
+# Once awake, the internal keepalive in index.js takes over,
+# keeping Render alive throughout the session.
+#
+# ⚙️ SETUP:
+# 1. Add your Render URL as a GitHub secret:
+#    Settings → Secrets and variables → Actions → New secret
+#    Name: RENDER_URL
+#    Value: https://your-app.onrender.com/health
+#
+# 2. Adjust the cron schedule to match YOUR session times.
+#    Default: London 7-9 UTC, New York 12-14 UTC
+#    Cron runs 5 min before each session:
+#      London:   55 6   * * 1-5  (6:55 UTC, Mon-Fri)
+#      New York: 55 11  * * 1-5  (11:55 UTC, Mon-Fri)
+#
+# 3. To test: go to Actions tab → "Wake Render Before Sessions"
+#    → "Run workflow" → "Run workflow"
+# ============================================================
+
+name: Wake Render Before Sessions
+
+on:
+  schedule:
+    # ── London session (7:00-9:00 UTC) → wake at 6:55 UTC ──
+    # ⚠️ If you change SESSIONS env var, update these cron times too!
+    - cron: '55 6 * * 1-5'
+    # ── New York session (12:00-14:00 UTC) → wake at 11:55 UTC ──
+    - cron: '55 11 * * 1-5'
+  workflow_dispatch: # Manual trigger for testing
+
+jobs:
+  wake-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping Render to wake from sleep
+        env:
+          RENDER_URL: ${{ secrets.RENDER_URL }}
+        run: |
+          if [ -z "$RENDER_URL" ]; then
+            echo "❌ RENDER_URL secret not set!"
+            echo "   Go to Settings → Secrets → Actions and add RENDER_URL"
+            exit 1
+          fi
+
+          echo "⏰ $(date -u '+%H:%M:%S UTC') — Waking Render service..."
+          echo "   URL: $RENDER_URL"
+
+          # --max-time 60 allows up to 60s for Render's cold start
+          HTTP_CODE=$(curl --silent --show-error --max-time 60 \
+            --write-out "%{http_code}" \
+            --output /tmp/render-response.txt \
+            "$RENDER_URL")
+
+          echo "   HTTP Status: $HTTP_CODE"
+          echo "✅ Render is awake and responding!"

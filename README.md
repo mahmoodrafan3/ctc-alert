@@ -9,21 +9,24 @@ Powered by the [@mathieuc/tradingview](https://github.com/Mathieu2301/TradingVie
 ## How It Works
 
 ```
-┌─────────────────────────┐
-│    GitHub (Storage)     │  <── Holds your code
-└────────────┬────────────┘
-             │ Automatic Sync
-┌────────────▼────────────┐
-│  Render.com (Execution) │  <── Runs `node index.js` 24/5 for free
-└────────────┬────────────┘
+┌──────────────────────────┐
+│  GitHub Actions (Wake)   │  <── Pings Render 5 min before each session
+└────────────┬─────────────┘        (curl --max-time 60, waits through cold start)
+             │ HTTP Ping
+┌────────────▼─────────────┐
+│  Render.com (Execution)  │  <── Runs `node index.js` for free
+│  ┌─ Internal Keepalive ─┐│  <── Self-pings every 10 min during sessions
+│  │   (prevents spin-down)││      to stay within Render (750h/mo)
+│  └───────────────────────┘│
+└────────────┬─────────────┘
              │ Live Price Stream
-┌────────────▼────────────┐
-│  TradingView WebSocket   │  <── Real-time EUR/USD data feed
-└────────────┬────────────┘
+┌────────────▼─────────────┐
+│  TradingView WebSocket    │  <── Real-time EUR/USD data feed
+└────────────┬─────────────┘
              │ Telegram Alert (optional)
-┌────────────▼────────────┐
-│     Telegram Phone      │  <── Receives price alerts
-└─────────────────────────┘
+┌────────────▼─────────────┐
+│     Telegram Phone       │  <── Receives price alerts
+└──────────────────────────┘
 ```
 
 ## Features
@@ -33,7 +36,8 @@ Powered by the [@mathieuc/tradingview](https://github.com/Mathieu2301/TradingVie
 - ✅ **🚀 Buy Signal** — candle opens below MagicTrend, closes above (bullish cross)
 - ✅ **🔻 Sell Signal** — candle opens above MagicTrend, closes below (bearish cross)
 - ✅ **Telegram notifications** (optional — enable via `.env`)
-- ✅ **Built-in health server** — keeps Render free tier alive 24/7
+- ✅ **GitHub Actions pre-wake** — wakes Render before each session (handles cold start where cron-job.org fails)
+- ✅ **Session-gated internal keepalive** — self-pings during sessions to prevent spin-down
 
 ---
 
@@ -101,13 +105,48 @@ git push -u origin master
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | — | Telegram chat ID (optional) |
 
-### Step 4: Monitor
+### Step 4: Enable Keepalive (GitHub Actions + Internal)
+
+This project uses a **two-layer keepalive** strategy to survive Render's free tier spin-down:
+
+#### Layer 1: GitHub Actions (Wake from Sleep)
+
+GitHub Actions pings your Render URL **5 minutes before each session** with a 60-second timeout — long enough to handle Render's cold start (unlike cron-job.org's 30s limit).
+
+1. **Add your Render URL as a GitHub secret:**
+   - Go to your repo → **Settings** → **Secrets and variables** → **Actions**
+   - Click **New repository secret**
+   - Name: `RENDER_URL`
+   - Value: `https://your-app-name.onrender.com/health`
+
+2. **Adjust the cron schedule** (if your session times differ from defaults):
+   - Edit `.github/workflows/keep-alive.yml`
+   - Match the cron times to 5 minutes before each session start
+
+3. **Test it:**
+   - Go to your repo's **Actions** tab
+   - Select **"Wake Render Before Sessions"**
+   - Click **Run workflow** → **Run workflow**
+   - Watch it ping your Render URL
+
+#### Layer 2: Internal Self-Ping (Keep Alive During Sessions)
+
+Once Render is awake, the built-in keepalive in `index.js` automatically pings itself every **10 minutes** during active session hours. This keeps Render from spinning down between candle closes.
+
+Set your Render environment variable:
+| Variable | Value |
+|----------|-------|
+| `RENDER_URL` | `https://your-app-name.onrender.com/health` |
+
+> 💡 The internal keepalive is **session-gated** — it only runs during your configured trading sessions, saving Render's 750h/month free tier hours for when it matters.
+
+### Step 5: Monitor
 
 - View live logs in the Render dashboard
 - Prices stream in real-time with Trend Magic indicator
 - 🚀 **BUY** / 🔻 **SELL** cross signals in console
 - Receive Telegram alerts (if configured)
-- Visit `https://your-app.onrender.com/health` for JSON status
+- Visit `https://your-app.onrender.com/health` for status
 
 ---
 
@@ -136,7 +175,7 @@ git push -u origin master
 | `TM_HISTORY_RANGE` | `10000` | Historical candles for warmup |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | — | Telegram chat ID (optional) |
-| `RENDER_URL` | — | Your Render app URL (e.g. `https://ctc-alert.onrender.com`) — enables built-in self-keepalive during sessions Mon-Fri |
+| `RENDER_URL` | — | Your Render app URL (e.g. `https://ctc-alert.onrender.com`) — enables built-in 24/7 self-keepalive to prevent spin-down entirely |
 
 ---
 
