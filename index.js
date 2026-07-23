@@ -535,7 +535,19 @@ function onCandleClosed(closedCandle) {
     console.log(gray(`   ${formatCandleTime(closedCandle.time)}`));
     console.log(gray(`   ──────────────────────────────────────────────────────────`));
     console.log(`     ${gray('Open:')}  ${white(formatPrice(closedCandle.open))}`);
-    console.log(`     ${gray('Close:')}  ${bold(tm.isBlue ? blue(formatPrice(closedCandle.close)) : red(formatPrice(closedCandle.close)))}  ${tm.isBlue ? blue('🟦 BULLISH') : red('🟥 BEARISH')}`);
+    const candleBullish = closedCandle.close > closedCandle.open;
+    const candleNeutral = closedCandle.close === closedCandle.open;
+    const closeColored = candleNeutral
+      ? white(formatPrice(closedCandle.close))
+      : candleBullish
+        ? brightGreen(formatPrice(closedCandle.close))
+        : brightRed(formatPrice(closedCandle.close));
+    const dirLabel = candleNeutral
+      ? gray('⬜ NEUTRAL')
+      : candleBullish
+        ? green('🟩 BULLISH')
+        : red('🟥 BEARISH');
+    console.log(`     ${gray('Close:')}  ${bold(closeColored)}  ${dirLabel}`);
     console.log(`     ${gray('Move:')}  ${moveSign}${formatPrice(move)}`);
     console.log(`     ${gray('High:')}  ${white(formatPrice(closedCandle.max))}  ${gray('Low:')} ${white(formatPrice(closedCandle.min))}`);
     console.log(`     ${gray('Range:')}  ${white(formatPrice(range))}  ${gray('Vol:')} ${white(Math.round(closedCandle.volume))}`);
@@ -583,7 +595,10 @@ function onCandleClosed(closedCandle) {
       tgMsg += `Open: ${formatPrice(closedCandle.open)} | Close: ${formatPrice(closedCandle.close)}\n`;
       tgMsg += `High: ${formatPrice(closedCandle.max)} | Low: ${formatPrice(closedCandle.min)}\n`;
       tgMsg += `Move: ${moveSign}${formatPrice(move)} | Range: ${formatPrice(range)}\n`;
-      tgMsg += `Direction: ${tm.isBlue ? '🟦 Bullish' : '🟥 Bearish'}\n`;
+      const tgCandleBullish = closedCandle.close > closedCandle.open;
+      const tgCandleNeutral = closedCandle.close === closedCandle.open;
+      const tgDir = tgCandleNeutral ? '⬜ Neutral' : (tgCandleBullish ? '🟩 Bullish' : '🟥 Bearish');
+      tgMsg += `Direction: ${tgDir}\n`;
       tgMsg += `\n${tm.emoji} <b>TREND MAGIC</b>\n`;
       tgMsg += `Level: ${mtStr} | CCI: ${cciStr} | ATR: ${atrStr}\n`;
       tgMsg += `upT: ${upTStr} | dnT: ${downTStr} | Dist: ${distStr}`;
