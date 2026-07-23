@@ -234,6 +234,10 @@ const TM_CCI_SRC = (process.env.TM_CCI_SRC || 'close').toLowerCase(); // CCI pri
 const TM_HISTORY_RANGE = Number(process.env.TM_HISTORY_RANGE) || 10000; // Historical candles
 const TM_MAX_HISTORY = Math.max(TM_AP + 2, TM_CCI_PERIOD) + 5; // Candle buffer
 
+// Minimum threshold for cross detection to avoid floating point precision false positives.
+// When close is within this epsilon of the MagicTrend level, it's considered equal (not a cross).
+const CROSS_EPSILON = 1e-8;
+
 // Candle history — stores { open, high, low, close } of closed candles
 const candleHistory = [];
 
@@ -473,13 +477,15 @@ function onCandleClosed(closedCandle) {
   const priceAboveMT = distToMT !== null && distToMT >= 0;
 
   // Cross detection (used regardless of session)
+  // Uses CROSS_EPSILON to prevent false positives when price ≈ MagicTrend
+  // due to floating point precision (e.g., computed MT = 1.1426699999 vs price = 1.14267)
   const isBullishCross = tm.magicTrend !== null &&
-    closedCandle.open < tm.magicTrend &&
-    closedCandle.close > tm.magicTrend;
+    closedCandle.open < tm.magicTrend - CROSS_EPSILON &&
+    closedCandle.close > tm.magicTrend + CROSS_EPSILON;
 
   const isBearishCross = tm.magicTrend !== null &&
-    closedCandle.open > tm.magicTrend &&
-    closedCandle.close < tm.magicTrend;
+    closedCandle.open > tm.magicTrend + CROSS_EPSILON &&
+    closedCandle.close < tm.magicTrend - CROSS_EPSILON;
 
   // Track latest signal for web status (always update)
   if (isBullishCross) {
