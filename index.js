@@ -479,13 +479,17 @@ function onCandleClosed(closedCandle) {
   // Cross detection (used regardless of session)
   // Uses CROSS_EPSILON to prevent false positives when price ≈ MagicTrend
   // due to floating point precision (e.g., computed MT = 1.1426699999 vs price = 1.14267)
+  // Also requires color alignment: MT level and candle color must match.
+  // Bullish cross only when both are blue (CCI≥0), bearish cross only when both are red (CCI<0).
   const isBullishCross = tm.magicTrend !== null &&
     closedCandle.open < tm.magicTrend - CROSS_EPSILON &&
-    closedCandle.close > tm.magicTrend + CROSS_EPSILON;
+    closedCandle.close > tm.magicTrend + CROSS_EPSILON &&
+    tm.isBlue;
 
   const isBearishCross = tm.magicTrend !== null &&
     closedCandle.open > tm.magicTrend + CROSS_EPSILON &&
-    closedCandle.close < tm.magicTrend - CROSS_EPSILON;
+    closedCandle.close < tm.magicTrend - CROSS_EPSILON &&
+    tm.isRed;
 
   // Track latest signal for web status (always update)
   if (isBullishCross) {
